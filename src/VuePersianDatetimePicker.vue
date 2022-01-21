@@ -2,6 +2,7 @@
   <span
     class="vpd-main"
     :data-type="type"
+    :data-placement="popoverPlace"
     :data-locale="localeData.name"
     :data-locale-dir="localeData.config.dir"
     :class="{ 'vpd-is-popover': isPopover }"
@@ -69,7 +70,6 @@
           {
             'vpd-is-range': range,
             'vpd-is-inline': inline,
-            'vpd-is-popover': isPopover,
             'vpd-is-multiple': multiple,
             'vpd-compact-time': isCompactTime,
             'vpd-no-footer': autoSubmit && !hasStep('t')
@@ -182,22 +182,6 @@
                         />
                       </slot>
                     </button>
-                    <button
-                      type="button"
-                      class="vpd-prev"
-                      :title="lang.prevMonth"
-                      :disabled="prevMonthDisabled"
-                      @click="prevMonth"
-                    >
-                      <slot name="prev-month">
-                        <arrow
-                          width="10"
-                          fill="#000"
-                          direction="left"
-                          style="vertical-align: middle"
-                        />
-                      </slot>
-                    </button>
                     <transition name="slideX">
                       <div
                         :key="date.xMonth()"
@@ -214,6 +198,22 @@
                         </slot>
                       </div>
                     </transition>
+                    <button
+                      type="button"
+                      class="vpd-prev"
+                      :title="lang.prevMonth"
+                      :disabled="prevMonthDisabled"
+                      @click="prevMonth"
+                    >
+                      <slot name="prev-month">
+                        <arrow
+                          width="10"
+                          fill="#000"
+                          direction="left"
+                          style="vertical-align: middle"
+                        />
+                      </slot>
+                    </button>
                   </div>
                   <div
                     class="vpd-clearfix"
@@ -458,7 +458,6 @@ import CoreModule from './modules/core'
 import { popupRouteChanger } from './modules/mixins'
 import { cloneDates, isSameDay } from './modules/utils'
 import { addLiveEvent } from './modules/utils'
-import popover from './modules/popover-util'
 
 export default {
   components: {
@@ -839,17 +838,14 @@ export default {
      * @type Boolean | String
      * @accepted:
      *    true | false
-     *    top | bottom | right | left
      *    top-left | top-right | bottom-right | bottom-left
-     *    { offsetX: -10, offsetY: 10 }
-     *    { placement: 'right', offsetX: 10, offsetY: 10 }
+     *    left-top | left-bottom | right-top | right-bottom
      * @default false
      * @example <date-picker popover />
-     * @example <date-picker popover="right" />
      * @example <date-picker popover="top-left" />
      * @version 2.6.0
      */
-    popover: { type: [Boolean, String, Object], default: false },
+    popover: { type: [Boolean, String], default: false },
 
     /**
      * If you want to change route address in open/close action,
@@ -908,6 +904,7 @@ export default {
       locales: ['fa'],
       localeData: coreModule.locale,
       windowWidth: window.innerWidth,
+      popoverPlace: 'bottom-right'
     }
   },
   computed: {
@@ -1232,12 +1229,18 @@ export default {
         if (this.type === 'datetime' && this.view === 'day') this.goStep('d')
         if (this.view !== 'day') this.goStep(this.shortCodes[this.view] || 'd')
         this.$nextTick(() => {
-          if (popover.shouldAppendPicker(this.appendTo, this.isPopover)) {
-            popover.appendChild(this.appendTo, this.$refs.picker)
+          if (this.appendTo) {
+            try {
+              let container = document.querySelector(this.appendTo)
+              container.appendChild(this.$refs.picker)
+            } catch (er) {
+              // eslint-disable-next-line
+              console.warn(`Cannot append picker to "${this.appendTo}"!`)
+            }
           }
         })
         this.checkScroll()
-        this.$nextTick(this.setPlacement)
+        this.setPlacement()
         this.$emit('open', this)
       } else {
         if (this.inline && !this.disabled) return (this.visible = true)
@@ -1294,17 +1297,16 @@ export default {
       let code = e.keyCode
       if ((code === 9 || code === 27) && this.visible) this.visible = false
     })
-    window.addEventListener('scroll', this.onWindowScroll, true)
     window.addEventListener('resize', this.onWindowResize, true)
     window.addEventListener('mousedown', this.onWindowClick, true)
   },
   beforeDestroy() {
     window.clearInterval(this.updateNowInterval)
-    window.removeEventListener('scroll', this.onWindowScroll, true)
     window.removeEventListener('resize', this.onWindowResize, true)
     window.removeEventListener('mousedown', this.onWindowClick, true)
-    if (popover.shouldAppendPicker(this.appendTo, this.isPopover)) {
-      popover.removeChild(this.$refs.picker)
+    let picker = this.$refs.picker
+    if (this.appendTo && picker && picker.$el && picker.$el.parentNode) {
+      picker.$el.parentNode.removeChild(picker.$el)
     }
   },
   methods: {
@@ -1402,29 +1404,18 @@ export default {
     selectYear(year) {
       if (year.disabled) return
       this.date = this.date.clone().xYear(year.xYear())
-      this.keepCurrentSelectedDay()
-      this.resetSelectedDates(this.date)
+      if (['year', 'year-month'].indexOf(this.type) !== -1)
+        this.selectedDates = [this.date.clone()]
       this.$emit('year-change', year)
       this.nextStep('year')
     },
     selectMonth(month) {
       if (month.disabled) return
       this.date = this.date.clone().xMonth(month.xMonth())
-      this.keepCurrentSelectedDay()
-      this.resetSelectedDates(this.date)
+      if (['month', 'year-month'].indexOf(this.type) !== -1)
+        this.selectedDates = [this.date.clone()]
       this.$emit('month-change', month)
       this.nextStep('month')
-    },
-    keepCurrentSelectedDay() {
-      if (!this.simple || this.multiple || this.range) return
-      let currentDay = this.selectedDate.xDate()
-      this.date.xDate(Math.min(currentDay, this.date.xDaysInMonth()))
-      this.selectedDates = [this.date.clone()]
-      this.autoSubmit && this.submit(false)
-    },
-    resetSelectedDates(date) {
-      if (['month', 'year-month'].indexOf(this.type) !== -1)
-        this.selectedDates = [date.clone()]
     },
     submit(close = true) {
       let steps = this.steps.length - 1
@@ -1773,23 +1764,13 @@ export default {
       }
       return value
     },
-    getInputGroupElement() {
-      return this.customInput
-        ? document.querySelector(this.customInput)
-        : this.$refs.inputGroup
-    },
     onWindowResize() {
       this.windowWidth = window.innerWidth
-      this.setPlacement()
-    },
-    onWindowScroll() {
-      this.setPlacement()
     },
     onWindowClick(event) {
-      const inputGroup = this.getInputGroupElement()
-      if (this.isPopover && this.$refs.picker && inputGroup) {
+      if (this.isPopover && this.$refs.picker && this.$refs.inputGroup) {
         let isOnPicker = this.$refs.picker.contains(event.target)
-        let isOnInput = inputGroup.contains(event.target)
+        let isOnInput = this.$refs.inputGroup.contains(event.target)
         if (isOnPicker) event.preventDefault()
         if (!isOnPicker && !isOnInput) {
           // setTimeout because:
@@ -1801,22 +1782,31 @@ export default {
       }
     },
     setPlacement() {
-      if (!this.isPopover || !this.visible) return
-      let positionOptions = {
-        placement: '',
-        offsetX: 0,
-        offsetY: 0
-      }
-      if (typeof this.popover === 'object' && this.popover)
-        positionOptions.placement = this.popover
-      else if (typeof this.popover === 'string')
-        positionOptions.placement = this.popover
-      popover.setPickerPosition(
-        this.$refs.picker,
-        this.$refs.container,
-        this.getInputGroupElement(),
-        positionOptions
-      )
+      if (!this.isPopover) return
+      let allowed = [
+        'top-left',
+        'top-right',
+        'bottom-right',
+        'bottom-left',
+        'left-top',
+        'left-bottom',
+        'right-top',
+        'right-bottom'
+      ]
+      if (allowed.indexOf(this.popover) !== -1)
+        return (this.popoverPlace = this.popover)
+
+      this.popoverPlace = 'bottom-right'
+      this.$nextTick(() => {
+        let placement = ['bottom', 'right']
+        let container = this.$refs.container
+        let rect = container.getBoundingClientRect()
+        let left = rect.left
+        let bottom = window.innerHeight - rect.bottom
+        if (bottom <= 0) placement[0] = 'top'
+        if (left <= 0) placement[1] = 'left'
+        this.popoverPlace = placement.join('-')
+      })
     }
   },
   install(Vue, options) {
